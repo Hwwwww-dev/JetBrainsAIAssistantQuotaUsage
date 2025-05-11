@@ -2,6 +2,8 @@
 
 本项目帮助您查看 JetBrains AI Assistant 的配额使用情况。它提供了手动方法和脚本，方便您查看当前的配额状态。
 
+[English Documentation](README.md)
+
 ## 免责声明
 
 **本项目仅供交流学习使用。**

@@ -2,6 +2,8 @@
 
 This project helps you check your JetBrains AI Assistant quota usage information. It provides both manual methods and scripts to easily view your current quota status.
 
+[中文文档](README_CN.md)
+
 ## Disclaimer
 
 **This project is for educational and informational purposes only.**
