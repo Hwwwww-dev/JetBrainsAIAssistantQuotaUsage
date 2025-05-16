@@ -20,6 +20,13 @@ import time
 import traceback
 import xml.etree.ElementTree as ET
 from datetime import datetime
+from typing import Dict, Optional
+from translations import get_translations
+
+# 语言设置
+DEFAULT_LANGUAGE = "zh_cn"  # 默认使用中文
+SUPPORTED_LANGUAGES = ["zh_cn", "en"]  # 支持的语言列表
+current_language = DEFAULT_LANGUAGE
 
 # 导入颜色支持
 try:
@@ -83,12 +90,42 @@ VERSION = "1.0.0"
 # 全局变量
 LOCK_PORT = 12345  # 用于确保只有一个实例运行的端口
 
+# 翻译字典，使用语义化键
+TRANSLATIONS = get_translations()
+
+def set_language(language: str):
+    """设置当前语言"""
+    global current_language
+    if language in SUPPORTED_LANGUAGES:
+        current_language = language
+    else:
+        current_language = DEFAULT_LANGUAGE
+
+def get_language() -> str:
+    """获取当前语言设置"""
+    return current_language
+
+def t(key: str, default: Optional[str] = None) -> str:
+    """
+    翻译函数：根据键获取当前语言的翻译文本
+    
+    Args:
+        key: 翻译键
+        default: 如果未找到翻译，返回的默认值
+        
+    Returns:
+        翻译后的文本
+    """
+    if key in TRANSLATIONS and current_language in TRANSLATIONS[key]:
+        return TRANSLATIONS[key][current_language]
+    return default or key
+
 def print_diagnostic_info():
     """打印诊断信息"""
-    print(f"{Colors.HEADER}环境信息:{Colors.RESET}")
-    print(f"{Colors.INFO}操作系统: {Colors.SUCCESS}{platform.system()} {platform.release()}{Colors.RESET}")
-    print(f"{Colors.INFO}Python版本: {Colors.SUCCESS}{platform.python_version()}{Colors.RESET}")
-    print(f"{Colors.INFO}SQLite版本: {Colors.SUCCESS}{sqlite3.sqlite_version}{Colors.RESET}")
+    print(f"{Colors.HEADER}{t('environment_info')}{Colors.RESET}")
+    print(f"{Colors.INFO}{t('operating_system')} {Colors.RESET}{platform.system()} {platform.release()}{Colors.RESET}")
+    print(f"{Colors.INFO}{t('python_version')} {Colors.RESET}{platform.python_version()}{Colors.RESET}")
+    print(f"{Colors.INFO}{t('sqlite_version')} {Colors.RESET}{sqlite3.sqlite_version}{Colors.RESET}")
     
     # 检查文件系统权限
     try:
@@ -99,9 +136,9 @@ def print_diagnostic_info():
             f.write("test")
         os.remove(test_file)
         os.rmdir(test_dir)
-        print(f"{Colors.INFO}文件系统权限: {Colors.SUCCESS}正常{Colors.RESET}")
+        print(f"{Colors.INFO}{t('file_system_permissions')} {Colors.RESET}{t('normal')}{Colors.RESET}")
     except Exception as e:
-        print(f"{Colors.INFO}文件系统权限: {Colors.ERROR}异常 - {e}{Colors.RESET}")
+        print(f"{Colors.INFO}{t('file_system_permissions')} {Colors.RESET}{t('error_with_msg').format(error=e)}{Colors.RESET}")
 
 # 使用套接字实现单例模式
 class SocketSingleInstance:
@@ -123,11 +160,11 @@ class SocketSingleInstance:
             self.sock.bind(('127.0.0.1', self.port))
             self.sock.listen(1)
             self.locked = True
-            print(f"{Colors.INFO}成功获取应用程序锁 (端口: {self.port}){Colors.RESET}")
+            print(f"{Colors.INFO}{t('app_lock_success').format(port=self.port)}{Colors.RESET}")
         except socket.error as e:
             self.sock = None
             self.locked = False
-            print(f"{Colors.INFO}无法获取应用程序锁 (端口: {self.port}): {e}，可能已有实例在运行{Colors.RESET}")
+            print(f"{Colors.INFO}{t('app_lock_failure').format(port=self.port, error=e)}{Colors.RESET}")
 
     def is_running(self):
         """检查应用程序是否已经在运行"""
@@ -138,7 +175,7 @@ class SocketSingleInstance:
         if self.sock:
             try:
                 self.sock.close()
-                print(f"{Colors.INFO}已释放应用程序锁 (端口: {self.port}){Colors.RESET}")
+                print(f"{Colors.INFO}{t('app_lock_released').format(port=self.port)}{Colors.RESET}")
             except:
                 pass
             self.sock = None
@@ -151,60 +188,38 @@ class SocketSingleInstance:
 
 # 进程检查和清理功能
 def check_and_clean_processes():
-    """
-    检查并清理同名进程
-    """
-    print(f"{Colors.INFO}检查是否存在残留进程...{Colors.RESET}")
-
-    # 获取当前进程ID
-    current_pid = os.getpid()
-
+    """检查并清理残留进程"""
+    print(f"{Colors.INFO}{t('checking_processes_simple')}{Colors.RESET}")
     try:
-        # 在macOS上使用ps命令查找同名进程
-        if platform.system() == "Darwin":
-            cmd = ["ps", "-ef"]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-
-            # 查找包含JetBrainsAIQuotaAnalyzer的进程
-            processes = []
-            for line in result.stdout.splitlines():
-                if "JetBrainsAIQuotaAnalyzer" in line and str(current_pid) not in line:
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        try:
-                            pid = int(parts[1])
-                            processes.append(pid)
-                        except ValueError:
-                            continue
-
-            # 终止找到的进程
-            if processes:
-                print(f"{Colors.INFO}发现 {len(processes)} 个残留进程，正在清理...{Colors.RESET}")
-                for pid in processes:
-                    try:
-                        os.kill(pid, signal.SIGTERM)
-                        print(f"{Colors.INFO}已终止进程 {pid}{Colors.RESET}")
-                    except OSError as e:
-                        print(f"{Colors.INFO}终止进程 {pid} 失败: {e}{Colors.RESET}")
-
-                # 等待进程终止
-                time.sleep(1)
-
-                # 再次检查进程是否已终止
-                for pid in processes:
-                    try:
-                        os.kill(pid, 0)  # 发送信号0测试进程是否存在
-                        print(f"{Colors.INFO}进程 {pid} 仍在运行，尝试强制终止...{Colors.RESET}")
-                        os.kill(pid, signal.SIGKILL)
-                    except OSError:
-                        # 进程已终止
-                        pass
-
-                print(f"{Colors.INFO}进程清理完成{Colors.RESET}")
+        # 根据操作系统执行不同的命令
+        if platform.system() == "Windows":
+            # Windows
+            cmd = f'netstat -ano | findstr ":{LOCK_PORT}"'
+            output = subprocess.check_output(cmd, shell=True).decode('utf-8')
+            if output:
+                print(f"{Colors.INFO}{t('found_processes_simple')}{Colors.RESET}")
+                print(output)
+                # 可以添加自动清理逻辑
             else:
-                print(f"{Colors.INFO}未发现残留进程{Colors.RESET}")
+                print(f"{Colors.INFO}{t('no_processes_found_simple')}{Colors.RESET}")
+        elif platform.system() == "Darwin" or platform.system() == "Linux":
+            # macOS or Linux
+            cmd = f"lsof -i :{LOCK_PORT}"
+            try:
+                output = subprocess.check_output(cmd, shell=True).decode('utf-8')
+                if output:
+                    print(f"{Colors.INFO}{t('found_processes_simple')}{Colors.RESET}")
+                    print(output)
+                    # 可以添加自动清理逻辑
+                else:
+                    print(f"{Colors.INFO}{t('no_processes_found_simple')}{Colors.RESET}")
+            except subprocess.CalledProcessError:
+                # 如果命令返回非零状态，通常意味着没有找到匹配的进程
+                print(f"{Colors.INFO}{t('no_processes_found_simple')}{Colors.RESET}")
+        else:
+            print(f"{Colors.INFO}{t('unsupported_os').format(os=platform.system())}{Colors.RESET}")
     except Exception as e:
-        print(f"{Colors.INFO}进程检查失败: {e}{Colors.RESET}")
+        print(f"{Colors.INFO}{t('process_check_failed').format(error=e)}{Colors.RESET}")
         traceback.print_exc()
 
 
@@ -268,7 +283,7 @@ class QuotaInfo:
 
             return quota
         except Exception as e:
-            print(f"{Colors.INFO}解析XML文件时出错: {e}{Colors.RESET}")
+            print(f"{Colors.INFO}{t('xml_parse_error').format(error=e)}{Colors.RESET}")
             return quota
 
     def to_dict(self):
@@ -322,19 +337,20 @@ class ConfigManager:
         try:
             os.makedirs(self.config_dir, exist_ok=True)
         except Exception as e:
-            print(f"{Colors.INFO}无法创建配置目录: {e}{Colors.RESET}")
+            print(f"无法创建配置目录: {e}")
             # 如果无法创建目录，使用当前目录作为备选
             self.config_dir = os.path.abspath(".")
 
         # 配置文件路径
         self.config_file = os.path.join(self.config_dir, "config.json")
         self.history_file = os.path.join(self.config_dir, "history.json")
-
-        # 记录路径信息
-        print(f"{Colors.INFO}应用程序路径: {Colors.SUCCESS}{self.app_path}{Colors.RESET}")
-        print(f"{Colors.INFO}配置目录: {Colors.SUCCESS}{self.config_dir}{Colors.RESET}")
-        print(f"{Colors.INFO}配置文件: {Colors.SUCCESS}{self.config_file}{Colors.RESET}")
-        print(f"{Colors.INFO}历史文件: {Colors.SUCCESS}{self.history_file}{Colors.RESET}")
+    
+    def print_config_paths(self):
+        """打印配置路径信息"""
+        print(f"{Colors.INFO}{t('app_path')} {Colors.RESET}{self.app_path}{Colors.RESET}")
+        print(f"{Colors.INFO}{t('config_dir')} {Colors.RESET}{self.config_dir}{Colors.RESET}")
+        print(f"{Colors.INFO}{t('config_file')} {Colors.RESET}{self.config_file}{Colors.RESET}")
+        print(f"{Colors.INFO}{t('history_file')} {Colors.RESET}{self.history_file}{Colors.RESET}")
 
     def _get_app_path(self):
         """获取应用程序路径"""
@@ -346,7 +362,7 @@ class ConfigManager:
             else:
                 return os.path.dirname(os.path.abspath(__file__))
         except Exception as e:
-            print(f"{Colors.INFO}获取应用程序路径出错: {e}{Colors.RESET}")
+            print(f"{Colors.INFO}{t('app_path_error').format(error=e)}{Colors.RESET}")
             return os.path.abspath(".")
 
     def _get_config_dir(self):
@@ -381,7 +397,7 @@ class ConfigManager:
                 os.remove(test_file)
                 return path
             except Exception as e:
-                print(f"{Colors.INFO}路径 {path} 不可写: {e}{Colors.RESET}")
+                print(f"{Colors.INFO}{t('path_not_writable').format(path=path, error=e)}{Colors.RESET}")
                 continue
 
         # 如果所有路径都失败，返回当前目录
@@ -457,6 +473,20 @@ class ConfigManager:
                 paths.add(path)
 
         return sorted(list(paths))
+        
+    def get_language(self):
+        """获取语言设置"""
+        config = self.load_config()
+        return config.get("language", DEFAULT_LANGUAGE)
+    
+    def set_language(self, language: str):
+        """设置语言"""
+        if language not in SUPPORTED_LANGUAGES:
+            language = DEFAULT_LANGUAGE
+            
+        config = self.load_config()
+        config["language"] = language
+        self.save_config(config)
 
     def get_recommended_paths(self, max_count=5):
         """获取推荐的历史路径，基于使用频率和最近使用情况
@@ -530,17 +560,17 @@ class DatabaseManager:
         try:
             self.conn = sqlite3.connect(self.db_file)
             self.connected = True
-            print(f"{Colors.INFO}成功连接到数据库: {self.db_file}{Colors.RESET}")
+            print(f"{Colors.INFO}{t('db_connected').format(path=self.db_file)}{Colors.RESET}")
         except sqlite3.Error as e:
             self.connected = False
-            print(f"{Colors.INFO}连接数据库失败: {e}{Colors.RESET}")
+            print(f"{Colors.INFO}{t('db_connect_failed').format(error=e)}{Colors.RESET}")
             # 尝试使用内存数据库作为备选
             try:
                 self.conn = sqlite3.connect(":memory:")
                 self.connected = True
-                print(f"{Colors.INFO}使用内存数据库作为备选{Colors.RESET}")
+                print(f"{Colors.INFO}{t('use_memory_db')}{Colors.RESET}")
             except sqlite3.Error as e2:
-                print(f"{Colors.INFO}连接内存数据库也失败: {e2}{Colors.RESET}")
+                print(f"{Colors.INFO}{t('memory_db_failed').format(error=e2)}{Colors.RESET}")
 
     def ensure_connection(self):
         """确保数据库连接有效，如果无效则尝试重新连接"""
@@ -563,7 +593,7 @@ class DatabaseManager:
     def init_db(self):
         """初始化数据库，创建表结构"""
         if not self.ensure_connection():
-            print(f"{Colors.INFO}无法初始化数据库：连接失败{Colors.RESET}")
+            print(f"{Colors.INFO}{t('db_init_failed')}{Colors.RESET}")
             return False
             
         try:
@@ -600,7 +630,7 @@ class DatabaseManager:
             self.conn.commit()
             return True
         except sqlite3.Error as e:
-            print(f"{Colors.INFO}初始化数据库失败: {e}{Colors.RESET}")
+            print(f"{Colors.INFO}{t('db_init_error').format(error=e)}{Colors.RESET}")
             return False
 
     def _migrate_from_json(self):
@@ -622,20 +652,20 @@ class DatabaseManager:
         if not history:
             return
 
-        print(f"{Colors.INFO}从JSON迁移 {len(history)} 条历史记录到SQLite...{Colors.RESET}")
+        print(f"{Colors.INFO}{t('migrate_from_json').format(count=len(history))}{Colors.RESET}")
 
         # 插入历史记录
         try:
             for item in history:
                 self.save_history_item(QuotaInfo.from_dict(item))
-            print(f"{Colors.INFO}迁移完成{Colors.RESET}")
+            print(f"{Colors.INFO}{t('migration_complete')}{Colors.RESET}")
         except Exception as e:
-            print(f"{Colors.INFO}迁移数据失败: {e}{Colors.RESET}")
+            print(f"{Colors.INFO}{t('migration_failed').format(error=e)}{Colors.RESET}")
 
     def save_history_item(self, quota_info):
         """保存单个历史记录项"""
         if not self.ensure_connection():
-            print(f"{Colors.INFO}无法保存历史记录：数据库连接失败{Colors.RESET}")
+            print(f"{Colors.INFO}{t('save_history_failed')}{Colors.RESET}")
             return False
             
         try:
@@ -654,13 +684,13 @@ class DatabaseManager:
             self.conn.commit()
             return True
         except sqlite3.Error as e:
-            print(f"{Colors.INFO}保存历史记录失败: {e}{Colors.RESET}")
+            print(f"{Colors.INFO}{t('save_record_failed').format(error=e)}{Colors.RESET}")
             return False
 
     def load_history(self, limit=50, file_path=None):
         """从数据库加载历史记录"""
         if not self.ensure_connection():
-            print(f"{Colors.INFO}无法加载历史记录：数据库连接失败{Colors.RESET}")
+            print(f"{Colors.INFO}{t('load_history_failed')}{Colors.RESET}")
             return []
             
         try:
@@ -715,7 +745,7 @@ class DatabaseManager:
             
             return result
         except sqlite3.Error as e:
-            print(f"{Colors.INFO}加载历史记录失败: {e}{Colors.RESET}")
+            print(f"{Colors.INFO}{t('load_records_failed').format(error=e)}{Colors.RESET}")
             return []
 
     def get_unique_paths(self):
@@ -734,7 +764,7 @@ class DatabaseManager:
             rows = cursor.fetchall()
             return [row[0] for row in rows]
         except sqlite3.Error as e:
-            print(f"{Colors.INFO}获取唯一路径失败: {e}{Colors.RESET}")
+            print(f"{Colors.INFO}{t('get_paths_failed').format(error=e)}{Colors.RESET}")
             return []
 
     def clear_history(self, file_path=None):
@@ -748,7 +778,7 @@ class DatabaseManager:
             bool: 操作是否成功
         """
         if not self.ensure_connection():
-            error_msg = f"{Colors.ERROR}无法清除历史记录：数据库连接失败{Colors.RESET}"
+            error_msg = f"{Colors.ERROR}{t('save_history_failed')}{Colors.RESET}"
             print(error_msg)
             return False
             
@@ -758,7 +788,7 @@ class DatabaseManager:
             # 检查表是否存在
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='history'")
             if not cursor.fetchone():
-                print(f"{Colors.WARNING}历史记录表不存在，无需清除{Colors.RESET}")
+                print(f"{Colors.WARNING}{t('no_history_table')}{Colors.RESET}")
                 return True
                 
             # 获取记录数
@@ -766,22 +796,22 @@ class DatabaseManager:
                 cursor.execute('SELECT COUNT(*) FROM history WHERE file_path = ?', (file_path,))
                 count = cursor.fetchone()[0]
                 if count == 0:
-                    print(f"{Colors.WARNING}未找到路径 '{file_path}' 的历史记录{Colors.RESET}")
+                    print(f"{Colors.WARNING}{t('no_path_history').format(path=file_path)}{Colors.RESET}")
                     return True
                     
                 # 执行删除指定路径的历史记录
                 cursor.execute('DELETE FROM history WHERE file_path = ?', (file_path,))
-                success_msg = f"已成功清除路径 '{file_path}' 的 {count} 条历史记录"
+                success_msg = t('clear_success').format(message=t('clear_path_success').format(path=file_path))
             else:
                 cursor.execute('SELECT COUNT(*) FROM history')
                 count = cursor.fetchone()[0]
                 if count == 0:
-                    print(f"{Colors.INFO}历史记录已为空{Colors.RESET}")
+                    print(f"{Colors.INFO}{t('history_empty')}{Colors.RESET}")
                     return True
                     
                 # 执行删除所有历史记录
                 cursor.execute('DELETE FROM history')
-                success_msg = f"已成功清除所有 {count} 条历史记录"
+                success_msg = t('clear_all_success_count').format(count=count)
                 
             self.conn.commit()
             
@@ -797,20 +827,20 @@ class DatabaseManager:
                 print(f"{Colors.SUCCESS}{success_msg}{Colors.RESET}")
                 return True
             else:
-                error_msg = f"{Colors.ERROR}清除历史记录失败：仍有 {remaining} 条记录未删除{Colors.RESET}"
+                error_msg = f"{Colors.ERROR}{t('clear_history_db_error').format(count=remaining)}{Colors.RESET}"
                 print(error_msg)
                 if self.conn:
                     self.conn.rollback()
                 return False
                 
         except sqlite3.Error as e:
-            error_msg = f"{Colors.ERROR}清除历史记录时出错: {e}{Colors.RESET}"
+            error_msg = f"{Colors.ERROR}{t('clear_history_error').format(error=e)}{Colors.RESET}"
             print(error_msg)
             if self.conn:
                 self.conn.rollback()
             return False
         except Exception as e:
-            error_msg = f"{Colors.ERROR}发生意外错误: {e}{Colors.RESET}"
+            error_msg = f"{Colors.ERROR}{t('unexpected_error').format(error=e)}{Colors.RESET}"
             print(error_msg)
             if self.conn:
                 self.conn.rollback()
@@ -822,9 +852,9 @@ class DatabaseManager:
             try:
                 self.conn.close()
                 self.connected = False
-                print(f"{Colors.INFO}数据库连接已关闭{Colors.RESET}")
+                print(f"{Colors.INFO}{t('db_closed')}{Colors.RESET}")
             except sqlite3.Error as e:
-                print(f"{Colors.INFO}关闭数据库连接时出错: {e}{Colors.RESET}")
+                print(f"{Colors.INFO}{t('db_close_error').format(error=e)}{Colors.RESET}")
 
 
 class QuotaAnalyzer:
@@ -867,7 +897,7 @@ class QuotaAnalyzer:
                 
             # 检查路径是否存在
             if not os.path.exists(file_or_dir_path):
-                print(f"{Colors.INFO}错误: 路径不存在: {file_or_dir_path}{Colors.RESET}")
+                print(f"{Colors.INFO}{t('path_not_exist').format(path=file_or_dir_path)}{Colors.RESET}")
                 return None
             
             # 如果是文件，直接使用
@@ -889,17 +919,17 @@ class QuotaAnalyzer:
                                 break
                 
                 if not file_path:
-                    print(f"{Colors.INFO}在目录中未找到配额文件: {file_or_dir_path}{Colors.RESET}")
+                    print(f"{Colors.INFO}{t('quota_file_not_found').format(path=file_or_dir_path)}{Colors.RESET}")
                     return None
             
             # 检查文件是否存在
             if not os.path.exists(file_path):
-                print(f"{Colors.INFO}错误: 文件不存在: {file_path}{Colors.RESET}")
+                print(f"{Colors.INFO}{t('file_not_exist').format(path=file_path)}{Colors.RESET}")
                 # 提示常见路径
-                print(f"{Colors.INFO}提示: 常见的配额文件路径包括:{Colors.RESET}")
-                print("Windows: %APPDATA%\\JetBrains\\<产品>\\options\\AIAssistantQuotaManager2.xml")
-                print("macOS: ~/Library/Application Support/JetBrains/<产品>/options/AIAssistantQuotaManager2.xml")
-                print("Linux: ~/.config/JetBrains/<产品>/options/AIAssistantQuotaManager2.xml")
+                print(f"{Colors.INFO}{t('common_paths_hint')}{Colors.RESET}")
+                print(f"Windows: %APPDATA%\\JetBrains\\{t('product_placeholder')}\\options\\AIAssistantQuotaManager2.xml")
+                print(f"macOS: ~/Library/Application Support/JetBrains/{t('product_placeholder')}/options/AIAssistantQuotaManager2.xml")
+                print(f"Linux: ~/.config/JetBrains/{t('product_placeholder')}/options/AIAssistantQuotaManager2.xml")
                 return
         
             # 解析XML文件
@@ -913,7 +943,7 @@ class QuotaAnalyzer:
             return quota_info
             
         except Exception as e:
-            print(f"{Colors.INFO}分析文件时出错: {e}{Colors.RESET}")
+            print(f"{Colors.INFO}{t('analyze_error').format(error=e)}{Colors.RESET}")
             traceback.print_exc()
             return None
 
@@ -951,7 +981,7 @@ class QuotaAnalyzer:
     def display_quota_info(self, quota_info):
         """显示配额信息"""
         print("\n" + Colors.HEADER + "=" * 60 + Colors.RESET)
-        print(f"{Colors.INFO}文件路径: {Colors.SUCCESS}{quota_info.file_path}{Colors.RESET}")
+        print(f"{Colors.INFO}{t('file_path')} {Colors.SUCCESS}{quota_info.file_path}{Colors.RESET}")
         
         # 根据使用百分比选择颜色
         if quota_info.percentage < 50:
@@ -961,31 +991,31 @@ class QuotaAnalyzer:
         else:
             percentage_color = Colors.PROGRESS_HIGH
         
-        print(f"\n{Colors.HEADER}配额信息:{Colors.RESET}")
-        print(f"{Colors.INFO}类型: {Colors.SUCCESS}{quota_info.type}{Colors.RESET}")
-        print(f"{Colors.INFO}当前使用: {Colors.SUCCESS}{quota_info.current:.2f}{Colors.RESET}")
-        print(f"{Colors.INFO}最大限制: {Colors.SUCCESS}{quota_info.maximum:.2f}{Colors.RESET}")
-        print(f"{Colors.INFO}使用百分比: {percentage_color}{quota_info.percentage:.2f}%{Colors.RESET}")
-        print(f"{Colors.INFO}有效期至: {Colors.SUCCESS}{quota_info.until}{Colors.RESET}")
+        print(f"\n{Colors.HEADER}{t('quota_info')}{Colors.RESET}")
+        print(f"{Colors.INFO}{t('quota_type')} {Colors.SUCCESS}{quota_info.type}{Colors.RESET}")
+        print(f"{Colors.INFO}{t('current_usage')} {Colors.SUCCESS}{quota_info.current:.2f}{Colors.RESET}")
+        print(f"{Colors.INFO}{t('max_limit')} {Colors.SUCCESS}{quota_info.maximum:.2f}{Colors.RESET}")
+        print(f"{Colors.INFO}{t('usage_percentage')} {percentage_color}{quota_info.percentage:.2f}%{Colors.RESET}")
+        print(f"{Colors.INFO}{t('valid_until')} {Colors.SUCCESS}{quota_info.until}{Colors.RESET}")
         
-        print(f"\n{Colors.HEADER}补充信息:{Colors.RESET}")
-        print(f"{Colors.INFO}补充类型: {Colors.SUCCESS}{quota_info.refill_type}{Colors.RESET}")
-        print(f"{Colors.INFO}下次补充: {Colors.SUCCESS}{quota_info.next_refill}{Colors.RESET}")
-        print(f"{Colors.INFO}补充数量: {Colors.SUCCESS}{quota_info.refill_amount:.2f}{Colors.RESET}")
-        print(f"{Colors.INFO}补充周期: {Colors.SUCCESS}{quota_info.refill_duration}{Colors.RESET}")
+        print(f"\n{Colors.HEADER}{t('refill_info')}{Colors.RESET}")
+        print(f"{Colors.INFO}{t('refill_type')} {Colors.SUCCESS}{quota_info.refill_type}{Colors.RESET}")
+        print(f"{Colors.INFO}{t('next_refill')} {Colors.SUCCESS}{quota_info.next_refill}{Colors.RESET}")
+        print(f"{Colors.INFO}{t('refill_amount')} {Colors.SUCCESS}{quota_info.refill_amount:.2f}{Colors.RESET}")
+        print(f"{Colors.INFO}{t('refill_period')} {Colors.SUCCESS}{quota_info.refill_duration}{Colors.RESET}")
         
-        print(f"\n{Colors.HEADER}其他信息:{Colors.RESET}")
-        print(f"{Colors.INFO}时间戳: {Colors.SUCCESS}{quota_info.timestamp}{Colors.RESET}")
+        print(f"\n{Colors.HEADER}{t('other_info')}{Colors.RESET}")
+        print(f"{Colors.INFO}{t('timestamp')} {Colors.SUCCESS}{quota_info.timestamp}{Colors.RESET}")
         
         print("\n" + Colors.HEADER + "-" * 60 + Colors.RESET)
         
         # 显示进度条
         progress_bar = self._get_progress_bar(quota_info.percentage)
-        print(f"\n{Colors.INFO}使用情况: {progress_bar}")
+        print(f"\n{Colors.INFO}{t('usage_status')} {progress_bar}")
         
         # 等待用户按回车键继续
         if sys.stdin.isatty():  # 检查是否在交互式终端中运行
-            input(f"\n{Colors.MENU_PROMPT}按回车键返回菜单...{Colors.RESET}")
+            input(f"\n{Colors.MENU_PROMPT}{t('press_enter')}{Colors.RESET}")
             print()  # 添加一个空行
 
     def display_history(self, file_path=None, limit=10):
@@ -993,13 +1023,13 @@ class QuotaAnalyzer:
         history = self.db_manager.load_history(limit=limit, file_path=file_path)
         
         if not history:
-            print(f"{Colors.INFO}没有历史记录{Colors.RESET}")
+            print(f"{Colors.INFO}{t('no_history')}{Colors.RESET}")
             return
         
         # 打印表头
-        header = f"{Colors.TABLE_HEADER}{'序号':<4} {'时间':<25} {'类型':<15} {'使用率':<15} {'当前/最大':<20}"
+        header = f"{Colors.TABLE_HEADER}{t('column_num'):<4} {t('column_time'):<25} {t('column_type'):<15} {t('column_usage'):<15} {t('column_current_max'):<20}"
         if file_path is None:
-            header += f" {'文件路径'}"
+            header += f" {t('column_filepath')}"
         print(f"\n{header}{Colors.RESET}")
         print(f"{Colors.DIM}{'-' * 100}{Colors.RESET}")
         
@@ -1039,7 +1069,7 @@ class QuotaAnalyzer:
         
         # 打印页脚
         print(f"{Colors.DIM}{'-' * 100}{Colors.RESET}")
-        print(f"{Colors.INFO}共显示 {len(history)} 条记录{Colors.RESET}\n")
+        print(f"{Colors.INFO}{t('total_records').format(count=len(history))}{Colors.RESET}\n")
 
     def get_paths(self):
         """获取历史记录中的唯一路径"""
@@ -1051,29 +1081,30 @@ class QuotaAnalyzer:
         quota_files = find_quota_files()
         
         if not quota_files:
-            print(f"{Colors.INFO}未找到配额文件{Colors.RESET}")
+            print(f"{Colors.INFO}{t('no_quota_file')}{Colors.RESET}")
             return
         
-        print(f"{Colors.INFO}找到 {len(quota_files)} 个配额文件:{Colors.RESET}")
+        print(f"{Colors.INFO}{t('found_quota_files').format(count=len(quota_files))}{Colors.RESET}")
         for i, file_path in enumerate(quota_files, 1):
             print(f"{i}. {file_path}")
         print()
         
+        
         if non_interactive:
             # 非交互模式，分析所有文件
-            print(f"{Colors.INFO}自动分析所有文件...{Colors.RESET}")
+            print(f"{Colors.INFO}{t('auto_analyzing_all_files')}{Colors.RESET}")
             success_count = 0
             for file_path in quota_files:
-                print(f"{Colors.INFO}分析文件: {file_path}{Colors.RESET}")
+                print(f"{Colors.INFO}{t('analyzing_file').format(path=file_path)}{Colors.RESET}")
                 quota_info = self.analyze_file(file_path)
                 if quota_info:
                     self.display_quota_info(quota_info)
                     success_count += 1
-            print(f"\n{Colors.INFO}成功分析了 {success_count} 个配额文件{Colors.RESET}")
+            print(f"\n{Colors.INFO}{t('analysis_success_count').format(count=success_count)}{Colors.RESET}")
         else:
             # 交互模式，让用户选择
             while True:
-                choice = input("\n请选择要分析的文件编号 (输入 'a' 分析所有, 'q' 返回): ")
+                choice = input(f"\n{t('select_file_to_analyze')}: ")
                 
                 if choice.lower() == 'q':
                     break
@@ -1082,26 +1113,26 @@ class QuotaAnalyzer:
                     # 分析所有文件
                     success_count = 0
                     for file_path in quota_files:
-                        print(f"{Colors.INFO}分析文件: {file_path}{Colors.RESET}")
+                        print(f"{Colors.INFO}{t('analyzing_file').format(path=file_path)}{Colors.RESET}")
                         quota_info = self.analyze_file(file_path)
                         if quota_info:
                             self.display_quota_info(quota_info)
                             success_count += 1
-                    print(f"\n{Colors.INFO}成功分析了 {success_count} 个配额文件{Colors.RESET}")
+                    print(f"\n{Colors.INFO}{t('analysis_success_count').format(count=success_count)}{Colors.RESET}")
                     break
                 
                 if choice.isdigit():
                     idx = int(choice)
                     if 1 <= idx <= len(quota_files):
                         file_path = quota_files[idx - 1]
-                        print(f"{Colors.INFO}分析文件: {file_path}{Colors.RESET}")
+                        print(f"{Colors.INFO}{t('analyzing_file').format(path=file_path)}{Colors.RESET}")
                         quota_info = self.analyze_file(file_path)
                         if quota_info:
                             self.display_quota_info(quota_info)
                     else:
-                        print(f"{Colors.INFO}无效的选项{Colors.RESET}")
+                        print(f"{Colors.INFO}{t('invalid_option_simple')}{Colors.RESET}")
                 else:
-                    print(f"{Colors.INFO}无效的输入{Colors.RESET}")
+                    print(f"{Colors.INFO}{t('invalid_input_simple')}{Colors.RESET}")
 
     def close(self):
         """关闭资源"""
@@ -1123,19 +1154,19 @@ class CommandLineInterface:
     def _safe_input(self, prompt):
         """安全的输入函数，处理EOF和KeyboardInterrupt异常"""
         if not self.is_interactive:
-            print(f"{Colors.INFO}警告: 在非交互式环境中运行，无法获取用户输入{Colors.RESET}")
-            print(f"{Colors.INFO}请使用命令行参数代替交互式模式，例如:{Colors.RESET}")
+            print(f"{Colors.INFO}{t('non_interactive_warning')}{Colors.RESET}")
+            print(f"{Colors.INFO}{t('use_command_line')}{Colors.RESET}")
             print("  python JetBrainsAIQuotaAnalyzer_CLI.py -A --all")
             print("  python JetBrainsAIQuotaAnalyzer_CLI.py -a /path/to/file.xml")
             print("  python JetBrainsAIQuotaAnalyzer_CLI.py --help")
             
             # 询问用户是否继续
             try:
-                choice = input("是否继续? (y/n): ")
+                choice = input(f"{t('continue_prompt')} ")
                 if choice.lower() != 'y':
                     return
             except (EOFError, KeyboardInterrupt):
-                print(f"\n{Colors.INFO}检测到EOF或中断，退出交互式模式{Colors.RESET}")
+                print(f"\n{Colors.INFO}{t('eof_interrupt')}{Colors.RESET}")
                 return
         
         try:
@@ -1149,20 +1180,20 @@ class CommandLineInterface:
     def show_menu(self):
         """显示主菜单"""
         print("\n" + Colors.HEADER + "=" * 60 + Colors.RESET)
-        print(Colors.MENU_TITLE + "JetBrains AI Assistant 配额分析器 (v1.0.0)".center(60) + Colors.RESET)
+        print(Colors.MENU_TITLE + t('app_title').center(60) + Colors.RESET)
         print(Colors.HEADER + "=" * 60 + Colors.RESET)
-        print(f"{Colors.MENU_ITEM}1.{Colors.RESET} 分析单个文件")
-        print(f"{Colors.MENU_ITEM}2.{Colors.RESET} 自动查找并分析所有文件")
-        print(f"{Colors.MENU_ITEM}3.{Colors.RESET} 查看历史记录")
-        print(f"{Colors.MENU_ITEM}4.{Colors.RESET} 按路径筛选历史记录")
-        print(f"{Colors.MENU_ITEM}5.{Colors.RESET} 显示常见路径")
-        print(f"{Colors.ERROR}6. 清除历史记录 (删除数据){Colors.RESET}")
-        print(f"{Colors.MENU_ITEM}7.{Colors.RESET} 帮助")
-        print(f"{Colors.MENU_ITEM}0.{Colors.RESET} 退出")
+        print(f"{Colors.MENU_ITEM}1.{Colors.RESET} {t('menu_analyze_file')}")
+        print(f"{Colors.MENU_ITEM}2.{Colors.RESET} {t('menu_auto_find')}")
+        print(f"{Colors.MENU_ITEM}3.{Colors.RESET} {t('menu_view_history')}")
+        print(f"{Colors.MENU_ITEM}4.{Colors.RESET} {t('menu_filter_history')}")
+        print(f"{Colors.MENU_ITEM}5.{Colors.RESET} {t('menu_common_paths')}")
+        print(f"{Colors.ERROR}6. {t('menu_clear_history')}{Colors.RESET}")
+        print(f"{Colors.MENU_ITEM}7.{Colors.RESET} {t('menu_help')}")
+        print(f"{Colors.MENU_ITEM}0.{Colors.RESET} {t('menu_exit')}")
         print("=" * 60)
-        print(f"{Colors.INFO}提示: 输入数字选择操作，按Ctrl+C返回上一级{Colors.RESET}")
+        print(f"{Colors.INFO}{t('menu_hint')}{Colors.RESET}")
 
-    def _get_path_with_recommendations(self, prompt="\n请输入文件路径或选择推荐路径(输入数字): "):
+    def _get_path_with_recommendations(self, prompt=None):
         """
         获取带推荐路径的用户输入
         
@@ -1172,14 +1203,17 @@ class CommandLineInterface:
         Returns:
             用户选择的文件路径，或None表示用户取消
         """
+        if prompt is None:
+            prompt = f"\n{t('enter_file_path_or_select')}: "
+            
         # 获取推荐的历史路径
         recommended_paths = self.config_manager.get_recommended_paths(max_count=3)
         
         # 显示推荐的历史路径
         if recommended_paths:
-            print(f"\n{Colors.HEADER}✨ 推荐的历史路径(输入数字选择):{Colors.RESET}")
+            print(f"\n{Colors.HEADER}{t('recommended_paths')}{Colors.RESET}")
             for i, path in enumerate(recommended_paths, 1):
-                print(f"{Colors.SUCCESS}{i}.{Colors.RESET} {path} {Colors.INFO}[推荐]{Colors.RESET}")
+                print(f"{Colors.SUCCESS}{i}.{Colors.RESET} {path} {Colors.INFO}{t('recommended_tag')}{Colors.RESET}")
         
         # 获取用户输入
         while True:
@@ -1195,7 +1229,7 @@ class CommandLineInterface:
                 if 0 <= choice < len(recommended_paths):
                     return recommended_paths[choice]
                 else:
-                    print(f"{Colors.ERROR}无效的推荐路径编号，请重试{Colors.RESET}")
+                    print(f"{Colors.ERROR}{t('invalid_recommendation')}{Colors.RESET}")
                     continue
                     
             # 处理普通路径
@@ -1203,26 +1237,26 @@ class CommandLineInterface:
                 return user_input
                 
             # 路径不存在，显示错误信息
-            print(f"{Colors.ERROR}错误: 文件或目录不存在 - {user_input}{Colors.RESET}")
-            print(f"{Colors.INFO}提示: 常见的配额文件路径包括:{Colors.RESET}")
-            print("Windows: %APPDATA%\\JetBrains\\<产品>\\options\\AIAssistantQuotaManager2.xml")
-            print("macOS: ~/Library/Application Support/JetBrains/<产品>/options/AIAssistantQuotaManager2.xml")
-            print("Linux: ~/.config/JetBrains/<产品>/options/AIAssistantQuotaManager2.xml")
+            print(f"{Colors.ERROR}{t('file_not_exist_error').format(path=user_input)}{Colors.RESET}")
+            print(f"{Colors.INFO}{t('common_paths_hint')}{Colors.RESET}")
+            print(f"Windows: %APPDATA%\\JetBrains\\{t('product_placeholder')}\\options\\AIAssistantQuotaManager2.xml")
+            print(f"macOS: ~/Library/Application Support/JetBrains/{t('product_placeholder')}/options/AIAssistantQuotaManager2.xml")
+            print(f"Linux: ~/.config/JetBrains/{t('product_placeholder')}/options/AIAssistantQuotaManager2.xml")
             
             # 询问是否重试
-            choice = self._safe_input("是否重试? (y/n, 默认y): ").strip().lower()
+            choice = self._safe_input(f"{t('retry_prompt')} ").strip().lower()
             if choice != '' and choice != 'y':
                 return None
                 
     def _analyze_file(self):
         """分析单个文件"""
-        file_path = self._get_path_with_recommendations("\n请输入配额文件路径 (或输入数字选择推荐路径): ")
+        file_path = self._get_path_with_recommendations(f"\n{t('enter_file_path_or_select')}: ")
         if not file_path:
-            print(f"{Colors.INFO}未提供文件路径{Colors.RESET}")
+            print(f"{Colors.INFO}{t('no_file_path')}{Colors.RESET}")
             return
             
         # 分析文件
-        print(f"{Colors.INFO}分析文件: {file_path}{Colors.RESET}")
+        print(f"{Colors.INFO}{t('analyzing_file').format(path=file_path)}{Colors.RESET}")
         quota_info = self.quota_analyzer.analyze_file(file_path)
         if quota_info:
             self.quota_analyzer.display_quota_info(quota_info)
@@ -1236,19 +1270,19 @@ class CommandLineInterface:
         
         # 显示推荐的历史路径
         if recommended_paths:
-            print(f"\n{Colors.HEADER}✨ 推荐的历史路径 (输入数字快速筛选):{Colors.RESET}")
+            print(f"\n{Colors.HEADER}{t('recommended_paths_view')}{Colors.RESET}")
             for i, path in enumerate(recommended_paths, 1):
-                print(f"{Colors.SUCCESS}{i}.{Colors.RESET} {path} {Colors.INFO}[推荐]{Colors.RESET}")
+                print(f"{Colors.SUCCESS}{i}.{Colors.RESET} {path} {Colors.INFO}{t('recommended_tag')}{Colors.RESET}")
         
         # 获取要显示的记录数量
-        limit_str = self._safe_input("\n请输入要显示的记录数量 (默认10，或输入数字筛选推荐路径): ")
+        limit_str = self._safe_input(f"\n{t('enter_record_limit_filter')}: ")
         
         # 处理推荐路径选择
         if limit_str.isdigit():
             choice = int(limit_str) - 1
             if 0 <= choice < len(recommended_paths):
                 file_path = recommended_paths[choice]
-                limit_str = self._safe_input("请输入要显示的记录数量 (默认10): ")
+                limit_str = self._safe_input(f"{t('enter_record_limit')}: ")
                 limit = 10
                 if limit_str.isdigit():
                     limit = int(limit_str)
@@ -1269,56 +1303,57 @@ class CommandLineInterface:
         paths = self.quota_analyzer.get_paths()
         
         if not paths:
-            print(f"{Colors.INFO}没有历史记录{Colors.RESET}")
+            print(f"{Colors.INFO}{t('no_history')}{Colors.RESET}")
             return
         
-        print("\n请选择要清除的历史记录范围:")
-        print(f"{Colors.WARNING}1. 清除所有历史记录 (危险: 删除所有数据){Colors.RESET}")
-        print(f"{Colors.MENU_ITEM}2.{Colors.RESET} 按路径清除历史记录")
-        print(f"{Colors.MENU_ITEM}0.{Colors.RESET} 取消并返回")
+        print(f"\n{t('choose_clear_range')}")
+        print(f"{Colors.WARNING}1. {t('clear_all_history')}{Colors.RESET}")
+        print(f"{Colors.MENU_ITEM}2. {t('clear_by_path')}{Colors.RESET}")
+        print(f"{Colors.MENU_ITEM}0. {t('cancel_return')}{Colors.RESET}")
         
-        choice = self._safe_input("\n请选择操作 (输入数字): ")
+        choice = self._safe_input(f"\n{t('select_operation')}: ")
         
         if choice == "1":
             # 清除所有历史记录
-            confirm = self._safe_input(f"{Colors.WARNING}确定要清除所有历史记录吗？此操作不可恢复！(y/N): ")
+            confirm = self._safe_input(f"{Colors.WARNING}{t('confirm_clear_all')}")
             if confirm.lower() == 'y':
                 if self.db_manager.clear_history():
-                    print(f"{Colors.SUCCESS}所有历史记录已成功清除{Colors.RESET}")
+                    print(f"{Colors.SUCCESS}{t('clear_all_success')}{Colors.RESET}")
             else:
-                print(f"{Colors.INFO}已取消清除操作{Colors.RESET}")
+                print(f"{Colors.INFO}{t('operation_cancelled')}{Colors.RESET}")
                 
         elif choice == "2":
             # 按路径清除历史记录
-            print("\n可用的文件路径:")
+            print(f"\n{t('available_paths')}:")
             for i, path in enumerate(paths, 1):
                 print(f"{i}. {path}")
                 
-            path_choice = self._safe_input("\n请选择要清除的路径编号 (输入0返回): ")
+            path_choice = self._safe_input(f"\n{t('select_path_clear')}")
             
             if path_choice == "0":
-                print(f"{Colors.INFO}已取消操作{Colors.RESET}")
+                print(f"{Colors.INFO}{t('operation_cancelled_simple')}{Colors.RESET}")
                 return
+                
                 
             if path_choice.isdigit() and 0 < int(path_choice) <= len(paths):
                 file_path = paths[int(path_choice) - 1]
                 confirm = self._safe_input(
-                    f"{Colors.WARNING}确定要清除路径 '{file_path}' 的所有历史记录吗？(y/N): "
+                    f"{Colors.WARNING}{t('confirm_clear_path').format(path=file_path)}"
                 )
                 if confirm.lower() == 'y':
                     if self.db_manager.clear_history(file_path=file_path):
-                        print(f"{Colors.SUCCESS}路径 '{file_path}' 的历史记录已成功清除{Colors.RESET}")
+                        print(f"{Colors.SUCCESS}{t('clear_path_success').format(path=file_path)}{Colors.RESET}")
                 else:
-                    print(f"{Colors.INFO}已取消清除操作{Colors.RESET}")
+                    print(f"{Colors.INFO}{t('operation_cancelled')}{Colors.RESET}")
             else:
-                print(f"{Colors.ERROR}无效的选择{Colors.RESET}")
+                print(f"{Colors.ERROR}{t('invalid_choice')}{Colors.RESET}")
 
     def _filter_history(self):
         """按路径筛选历史记录"""
         paths = self.quota_analyzer.get_paths()
         
         if not paths:
-            print(f"{Colors.INFO}没有历史记录{Colors.RESET}")
+            print(f"{Colors.INFO}{t('no_history')}{Colors.RESET}")
             return
         
         # 获取推荐的历史路径
@@ -1326,25 +1361,25 @@ class CommandLineInterface:
         
         # 显示推荐的历史路径
         if recommended_paths:
-            print(f"\n{Colors.HEADER}✨ 推荐的历史路径:{Colors.RESET}")
+            print(f"\n{Colors.HEADER}{t('recommended_paths')}{Colors.RESET}")
             for i, path in enumerate(recommended_paths, 1):
-                print(f"{Colors.SUCCESS}R{i}.{Colors.RESET} {path} {Colors.INFO}[推荐]{Colors.RESET}")
+                print(f"{Colors.SUCCESS}R{i}.{Colors.RESET} {path} {Colors.INFO}{t('recommended_tag')}{Colors.RESET}")
         
         # 显示所有可用的文件路径
-        print(f"\n{Colors.HEADER}所有可用的文件路径:{Colors.RESET}")
+        print(f"\n{Colors.HEADER}{t('all_available_paths')}{Colors.RESET}")
         for i, path in enumerate(paths, 1):
             # 检查是否是推荐路径
             if path in recommended_paths:
-                print(f"{Colors.MENU_ITEM}{i}.{Colors.RESET} {path} {Colors.SUCCESS}[推荐]{Colors.RESET}")
+                print(f"{Colors.MENU_ITEM}{i}.{Colors.RESET} {path} {Colors.SUCCESS}{t('recommended_tag')}{Colors.RESET}")
             else:
                 print(f"{Colors.MENU_ITEM}{i}.{Colors.RESET} {path}")
         
         if len(paths) == 1:
             # 如果只有一个路径，直接使用
             file_path = paths[0]
-            print(f"\n只有一个路径可用，使用: {file_path}")
+            print(f"\n{t('only_one_path').format(path=file_path)}")
             
-            limit_str = self._safe_input("请输入要显示的记录数量 (默认10): ")
+            limit_str = self._safe_input(f"{t('enter_record_limit')}: ")
             
             # 设置默认值
             limit = 10
@@ -1356,10 +1391,10 @@ class CommandLineInterface:
             # 让用户选择路径
             while True:
                 # 提示用户可以使用R1-R3选择推荐路径
-                prompt = "\n请选择路径编号"
+                prompt = f"\n{t('select_path_number')}"
                 if recommended_paths:
-                    prompt += f" (可输入R1-R{len(recommended_paths)}选择推荐路径)"
-                prompt += " (输入0返回): "
+                    prompt += t('select_path_hint').format(count=len(recommended_paths))
+                prompt += t('select_path_return')
                 
                 choice = self._safe_input(prompt)
                 
@@ -1372,7 +1407,7 @@ class CommandLineInterface:
                     if 0 <= r_index < len(recommended_paths):
                         file_path = recommended_paths[r_index]
                         
-                        limit_str = self._safe_input("请输入要显示的记录数量 (默认10): ")
+                        limit_str = self._safe_input(f"{t('enter_record_limit')}: ")
                         
                         # 设置默认值
                         limit = 10
@@ -1386,12 +1421,12 @@ class CommandLineInterface:
                         
                         break
                     else:
-                        print(f"{Colors.ERROR}无效的推荐路径编号，请重试{Colors.RESET}")
+                        print(f"{Colors.ERROR}{t('invalid_recommendation')}{Colors.RESET}")
                 # 处理普通路径选择
                 elif choice.isdigit() and 1 <= int(choice) <= len(paths):
                     file_path = paths[int(choice) - 1]
                     
-                    limit_str = self._safe_input("请输入要显示的记录数量 (默认10): ")
+                    limit_str = self._safe_input(f"{t('enter_record_limit')}: ")
                     
                     # 设置默认值
                     limit = 10
@@ -1405,85 +1440,96 @@ class CommandLineInterface:
                     
                     break
                 else:
-                    print(f"{Colors.ERROR}无效的选项，请重试{Colors.RESET}")
+                    print(f"{Colors.ERROR}{t('invalid_option')}{Colors.RESET}")
 
     def show_common_paths(self):
         """显示常见配额文件路径"""
-        print(f"\n{Colors.HEADER}常见配额文件路径:{Colors.RESET}")
+        print(f"\n{Colors.HEADER}{t('common_paths_title')}{Colors.RESET}")
         
-        print(f"\n{Colors.MENU_ITEM}1. {Colors.HEADER}IntelliJ IDEA:{Colors.RESET}")
-        print(f"   {Colors.INFO}~/Library/Application Support/JetBrains/IntelliJIdea<版本>/options/AIAssistantQuotaManager2.xml{Colors.RESET}")
-        print(f"   {Colors.INFO}~/Library/Application Support/JetBrains/IntelliJIdea<版本>/AIAssistantQuotaManager2.xml{Colors.RESET}")
-        print(f"   {Colors.INFO}~/.IntelliJIdea<版本>/config/options/AIAssistantQuotaManager2.xml{Colors.RESET}")
+        print(f"\n{Colors.MENU_ITEM}1. {Colors.HEADER}{t('idea_paths')}{Colors.RESET}")
+        print(f"   {Colors.INFO}~/Library/Application Support/JetBrains/IntelliJIdea{t('version_placeholder')}/options/AIAssistantQuotaManager2.xml{Colors.RESET}")
+        print(f"   {Colors.INFO}~/Library/Application Support/JetBrains/IntelliJIdea{t('version_placeholder')}/AIAssistantQuotaManager2.xml{Colors.RESET}")
+        print(f"   {Colors.INFO}~/.IntelliJIdea{t('version_placeholder')}/config/options/AIAssistantQuotaManager2.xml{Colors.RESET}")
         
-        print(f"\n{Colors.MENU_ITEM}2. {Colors.HEADER}PyCharm:{Colors.RESET}")
-        print(f"   {Colors.INFO}~/Library/Application Support/JetBrains/PyCharm<版本>/options/AIAssistantQuotaManager2.xml{Colors.RESET}")
-        print(f"   {Colors.INFO}~/Library/Application Support/JetBrains/PyCharm<版本>/AIAssistantQuotaManager2.xml{Colors.RESET}")
-        print(f"   {Colors.INFO}~/.PyCharm<版本>/config/options/AIAssistantQuotaManager2.xml{Colors.RESET}")
+        print(f"\n{Colors.MENU_ITEM}2. {Colors.HEADER}{t('pycharm_paths')}{Colors.RESET}")
+        print(f"   {Colors.INFO}~/Library/Application Support/JetBrains/PyCharm{t('version_placeholder')}/options/AIAssistantQuotaManager2.xml{Colors.RESET}")
+        print(f"   {Colors.INFO}~/Library/Application Support/JetBrains/PyCharm{t('version_placeholder')}/AIAssistantQuotaManager2.xml{Colors.RESET}")
+        print(f"   {Colors.INFO}~/.PyCharm{t('version_placeholder')}/config/options/AIAssistantQuotaManager2.xml{Colors.RESET}")
         
-        print(f"\n{Colors.MENU_ITEM}3. {Colors.HEADER}WebStorm:{Colors.RESET}")
-        print(f"   {Colors.INFO}~/Library/Application Support/JetBrains/WebStorm<版本>/options/AIAssistantQuotaManager2.xml{Colors.RESET}")
-        print(f"   {Colors.INFO}~/Library/Application Support/JetBrains/WebStorm<版本>/AIAssistantQuotaManager2.xml{Colors.RESET}")
-        print(f"   {Colors.INFO}~/.WebStorm<版本>/config/options/AIAssistantQuotaManager2.xml{Colors.RESET}")
+        print(f"\n{Colors.MENU_ITEM}3. {Colors.HEADER}{t('webstorm_paths')}{Colors.RESET}")
+        print(f"   {Colors.INFO}~/Library/Application Support/JetBrains/WebStorm{t('version_placeholder')}/options/AIAssistantQuotaManager2.xml{Colors.RESET}")
+        print(f"   {Colors.INFO}~/Library/Application Support/JetBrains/WebStorm{t('version_placeholder')}/AIAssistantQuotaManager2.xml{Colors.RESET}")
+        print(f"   {Colors.INFO}~/.WebStorm{t('version_placeholder')}/config/options/AIAssistantQuotaManager2.xml{Colors.RESET}")
         
-        print(f"\n{Colors.INFO}提示: {Colors.SUCCESS}将 <版本> 替换为您的IDE版本号 (例如: 2023.1){Colors.RESET}")
-        
-        # 等待用户按回车键继续
-        if sys.stdin.isatty():
-            input(f"\n{Colors.MENU_PROMPT}按回车键返回菜单...{Colors.RESET}")
+        print(f"\n{Colors.INFO}{t('paths_tip')}{Colors.RESET}")
 
     def show_help(self):
         """显示帮助信息"""
-        print(f"\n{Colors.HEADER}===== JetBrains AI Assistant配额分析器帮助 ====={Colors.RESET}")
-        print(f"{Colors.INFO}这个工具可以帮助你分析JetBrains AI Assistant的配额使用情况。{Colors.RESET}")
-        print(f"\n{Colors.INFO}命令行选项:{Colors.RESET}")
-        print(f"  -i, --interactive     交互式模式{Colors.RESET}")
-        print(f"  -a, --analyze FILE    分析指定的配额文件{Colors.RESET}")
-        print(f"  -A, --auto-find       自动查找配额文件{Colors.RESET}")
-        print(f"  --all                 与--auto-find一起使用，自动分析所有找到的文件{Colors.RESET}")
-        print(f"  -H, --history         显示历史记录{Colors.RESET}")
-        print(f"  -l, --limit N         限制显示的记录数量{Colors.RESET}")
-        print(f"  -f, --filter PATH     按文件路径筛选历史记录{Colors.RESET}")
-        print(f"  --help-paths          显示常见配额文件路径{Colors.RESET}")
-        print(f"  -h, --help            显示此帮助信息{Colors.RESET}")
-        print(f"  -v, --version         显示版本信息{Colors.RESET}")
-        print(f"\n{Colors.INFO}示例:{Colors.RESET}")
+        print(f"\n{Colors.HEADER}{t('help_title')}{Colors.RESET}")
+        
+        print(f"\n{Colors.INFO}{t('usage_tip')}{Colors.RESET}")
+        print(f"{t('application_description')}")
+        
+        print(f"\n{Colors.INFO}{t('key_features')}{Colors.RESET}")
+        print(f"1. {t('feature_analyze')}")
+        print(f"2. {t('feature_auto')}")
+        print(f"3. {t('feature_history')}")
+        print(f"4. {t('feature_clear')}")
+        
+        print(f"\n{Colors.INFO}{t('command_line_usage')}{Colors.RESET}")
+        print(f"- {t('interactive_mode')}")
         print("  python JetBrainsAIQuotaAnalyzer_CLI.py -i")
+        print(f"- {t('analyze_example')}")
         print("  python JetBrainsAIQuotaAnalyzer_CLI.py -a /path/to/AIAssistantQuotaManager2.xml")
-        print("  python JetBrainsAIQuotaAnalyzer_CLI.py -A --all")
-        print("  python JetBrainsAIQuotaAnalyzer_CLI.py -H -l 20")
-        print("  python JetBrainsAIQuotaAnalyzer_CLI.py -f /path/to/AIAssistantQuotaManager2.xml -l 5")
-        print(f"\n{Colors.INFO}更多信息请访问: https://github.com/hwwwww/JetBrainsAIAssistantQuotaUsage{Colors.RESET}")
+        print(f"- {t('auto_find_example')}")
+        print("  python JetBrainsAIQuotaAnalyzer_CLI.py -A")
+        print(f"- {t('view_history_example')}")
+        print("  python JetBrainsAIQuotaAnalyzer_CLI.py -H")
+        print(f"- {t('filter_history_example')}")
+        print("  python JetBrainsAIQuotaAnalyzer_CLI.py -f /path/to/file.xml")
+        print(f"- {t('common_paths_example')}")
+        print("  python JetBrainsAIQuotaAnalyzer_CLI.py --help-paths")
+        
+        print(f"\n{Colors.INFO}{t('language_settings')}{Colors.RESET}")
+        print(f"{t('supported_languages_info').format(languages=', '.join(SUPPORTED_LANGUAGES))}")
+        print("  python JetBrainsAIQuotaAnalyzer_CLI.py --lang en")
+        
+        print(f"\n{Colors.INFO}{t('other_help')}{Colors.RESET}")
+        print("  python JetBrainsAIQuotaAnalyzer_CLI.py --help")
+        
+        # 等待用户按回车键继续
+        if sys.stdin.isatty():
+            input(f"\n{Colors.MENU_PROMPT}{t('press_enter')}{Colors.RESET}")
 
     def run_interactive(self):
         """运行交互式界面"""
-        print(f"{Colors.INFO}欢迎使用JetBrains AI Assistant配额分析器！{Colors.RESET}")
+        print(f"{Colors.INFO}{t('welcome')}{Colors.RESET}")
         
         if not self.is_interactive:
-            print(f"{Colors.INFO}警告: 检测到非交互式环境{Colors.RESET}")
-            print(f"{Colors.INFO}交互式模式可能无法正常工作{Colors.RESET}")
-            print(f"{Colors.INFO}建议使用命令行参数代替，例如:{Colors.RESET}")
+            print(f"{Colors.INFO}{t('interactive_warning')}{Colors.RESET}")
+            print(f"{Colors.INFO}{t('interactive_error')}{Colors.RESET}")
+            print(f"{Colors.INFO}{t('use_command_line')}{Colors.RESET}")
             print("  python JetBrainsAIQuotaAnalyzer_CLI.py -A --all")
             print("  python JetBrainsAIQuotaAnalyzer_CLI.py -a /path/to/file.xml")
             print("  python JetBrainsAIQuotaAnalyzer_CLI.py --help")
             
             # 询问用户是否继续
             try:
-                choice = input("是否继续? (y/n): ")
+                choice = input(f"{t('continue_prompt')} ")
                 if choice.lower() != 'y':
                     return
             except (EOFError, KeyboardInterrupt):
-                print(f"\n{Colors.INFO}检测到EOF或中断，退出交互式模式{Colors.RESET}")
+                print(f"\n{Colors.INFO}{t('eof_interrupt')}{Colors.RESET}")
                 return
         
         while self.running:
             try:
                 self.show_menu()
-                choice = self._safe_input("请选择操作: ")
+                choice = self._safe_input(f"{t('select_operation')} ")
                 
                 if choice == "0":
                     self.running = False
-                    print(f"{Colors.INFO}感谢使用！{Colors.RESET}")
+                    print(f"{Colors.INFO}{t('thank_you')}{Colors.RESET}")
                 elif choice == "1":
                     self._analyze_file()
                 elif choice == "2":
@@ -1499,12 +1545,12 @@ class CommandLineInterface:
                 elif choice == "7":
                     self.show_help()
                 else:
-                    print(f"{Colors.INFO}无效选项，请重试。{Colors.RESET}")
+                    print(f"{Colors.INFO}{t('invalid_option_retry_dot')}{Colors.RESET}")
             except (EOFError, KeyboardInterrupt):
-                print(f"\n{Colors.INFO}操作已取消{Colors.RESET}")
+                print(f"\n{Colors.INFO}{t('operation_cancelled')}{Colors.RESET}")
                 self.running = False
             except Exception as e:
-                print(f"{Colors.INFO}错误: {e}{Colors.RESET}")
+                print(f"{Colors.INFO}{t('unexpected_error').format(error=e)}{Colors.RESET}")
                 traceback.print_exc()
         
         # 关闭数据库连接
@@ -1556,7 +1602,7 @@ def find_quota_files():
     
     # 如果基础目录不存在，返回空列表
     if not os.path.exists(base_dir):
-        print(f"{Colors.INFO}未找到JetBrains配置目录: {base_dir}{Colors.RESET}")
+        print(f"{Colors.INFO}{t('jetbrains_dir_not_found').format(path=base_dir)}{Colors.RESET}")
         return quota_files
     
     # 遍历基础目录下的所有子目录
@@ -1575,7 +1621,7 @@ def find_quota_files():
             if os.path.exists(quota_file):
                 quota_files.append(quota_file)
     except Exception as e:
-        print(f"{Colors.INFO}查找配额文件时出错: {e}{Colors.RESET}")
+        print(f"{Colors.INFO}{t('find_quota_files_error').format(error=e)}{Colors.RESET}")
     
     return quota_files
 
@@ -1590,14 +1636,14 @@ def get_app_lock():
         # 保存套接字引用，防止被垃圾回收
         global app_lock_socket
         app_lock_socket = sock
-        print(f"{Colors.INFO}成功获取应用程序锁 (端口: {LOCK_PORT}){Colors.RESET}")
+        print(f"{Colors.INFO}{t('app_lock_success').format(port=LOCK_PORT)}{Colors.RESET}")
         
         # 检查并清理残留进程
         check_and_clean_processes()
         
         return True
     except socket.error:
-        print(f"{Colors.INFO}无法获取应用程序锁，可能已有实例在运行 (端口: {LOCK_PORT}){Colors.RESET}")
+        print(f"{Colors.INFO}{t('app_lock_failure_simple').format(port=LOCK_PORT)}{Colors.RESET}")
         return False
 
 def release_app_lock():
@@ -1605,11 +1651,11 @@ def release_app_lock():
     global app_lock_socket
     if 'app_lock_socket' in globals() and app_lock_socket:
         app_lock_socket.close()
-        print(f"{Colors.INFO}已释放应用程序锁 (端口: {LOCK_PORT}){Colors.RESET}")
+        print(f"{Colors.INFO}{t('app_lock_released').format(port=LOCK_PORT)}{Colors.RESET}")
 
 def check_and_clean_processes():
     """检查并清理残留进程"""
-    print(f"{Colors.INFO}检查是否存在残留进程...{Colors.RESET}")
+    print(f"{Colors.INFO}{t('checking_processes_simple')}{Colors.RESET}")
     try:
         # 根据操作系统执行不同的命令
         if platform.system() == "Windows":
@@ -1617,52 +1663,56 @@ def check_and_clean_processes():
             cmd = f'netstat -ano | findstr ":{LOCK_PORT}"'
             output = subprocess.check_output(cmd, shell=True).decode('utf-8')
             if output:
-                print(f"{Colors.INFO}发现残留进程:{Colors.RESET}")
+                print(f"{Colors.INFO}{t('found_processes_simple')}{Colors.RESET}")
                 print(output)
                 # 可以添加自动清理逻辑
             else:
-                print(f"{Colors.INFO}未发现残留进程{Colors.RESET}")
+                print(f"{Colors.INFO}{t('no_processes_found_simple')}{Colors.RESET}")
         elif platform.system() == "Darwin" or platform.system() == "Linux":
             # macOS or Linux
             cmd = f"lsof -i :{LOCK_PORT}"
             try:
                 output = subprocess.check_output(cmd, shell=True).decode('utf-8')
                 if output:
-                    print(f"{Colors.INFO}发现残留进程:{Colors.RESET}")
+                    print(f"{Colors.INFO}{t('found_processes_simple')}{Colors.RESET}")
                     print(output)
                     # 可以添加自动清理逻辑
                 else:
-                    print(f"{Colors.INFO}未发现残留进程{Colors.RESET}")
+                    print(f"{Colors.INFO}{t('no_processes_found_simple')}{Colors.RESET}")
             except subprocess.CalledProcessError:
                 # 如果命令返回非零状态，通常意味着没有找到匹配的进程
-                print(f"{Colors.INFO}未发现残留进程{Colors.RESET}")
+                print(f"{Colors.INFO}{t('no_processes_found_simple')}{Colors.RESET}")
         else:
-            print(f"{Colors.INFO}不支持的操作系统: {platform.system()}{Colors.RESET}")
+            print(f"{Colors.INFO}{t('unsupported_os').format(os=platform.system())}{Colors.RESET}")
     except Exception as e:
-        print(f"{Colors.INFO}进程检查失败: {e}{Colors.RESET}")
+        print(f"{Colors.INFO}{t('process_check_failed').format(error=e)}{Colors.RESET}")
         traceback.print_exc()
 
 
 def create_argument_parser():
     """创建命令行参数解析器"""
-    parser = argparse.ArgumentParser(description="JetBrains AI Assistant配额分析器命令行版本")
+    parser = argparse.ArgumentParser(description=t('app_description'))
     
     # 基本选项
-    parser.add_argument("-i", "--interactive", action="store_true", help="交互式模式")
-    parser.add_argument("--help-paths", action="store_true", help="显示常见配额文件路径")
+    parser.add_argument("-i", "--interactive", action="store_true", help=t('menu_analyze_file'))
+    parser.add_argument("--help-paths", action="store_true", help=t('menu_common_paths'))
     
     # 分析选项
-    parser.add_argument("-a", "--analyze", metavar="PATH", help="分析指定的配额文件或IDE数据目录")
-    parser.add_argument("-A", "--auto-find", action="store_true", help="自动查找配额文件")
-    parser.add_argument("--all", action="store_true", help="分析所有找到的配额文件")
+    parser.add_argument("-a", "--analyze", metavar="PATH", help=t('menu_analyze_file'))
+    parser.add_argument("-A", "--auto-find", action="store_true", help=t('menu_auto_find'))
+    parser.add_argument("--all", action="store_true", help=t('auto_analyze'))
     
     # 历史记录选项
-    parser.add_argument("-H", "--history", action="store_true", help="显示历史记录")
-    parser.add_argument("-l", "--limit", type=int, default=10, help="限制显示的历史记录数量")
-    parser.add_argument("-f", "--filter", metavar="PATH", help="按文件路径筛选历史记录")
+    parser.add_argument("-H", "--history", action="store_true", help=t('menu_view_history'))
+    parser.add_argument("-l", "--limit", type=int, default=10, help=t('enter_record_limit'))
+    parser.add_argument("-f", "--filter", metavar="PATH", help=t('menu_filter_history'))
+    
+    # 语言选项
+    parser.add_argument("--lang", choices=SUPPORTED_LANGUAGES, default=None, 
+                        help=t('set_language_option').format(languages=', '.join(SUPPORTED_LANGUAGES)))
     
     # 版本信息
-    parser.add_argument("-v", "--version", action="version", version=f"JetBrains AI Assistant配额分析器 v{VERSION}")
+    parser.add_argument("-v", "--version", action="version", version=t('version_info').format(version=VERSION))
     
     return parser
 
@@ -1673,63 +1723,92 @@ def parse_arguments():
 
 def print_help_paths():
     """打印常见配额文件路径帮助信息"""
-    print(f"\n{Colors.INFO}使用方式:{Colors.RESET}")
-    print("1. 直接指定配额文件:")
+    print(f"\n{Colors.INFO}{t('usage_tip')}{Colors.RESET}")
+    print("1. " + t('analyze_example'))
     print("   python JetBrainsAIQuotaAnalyzer_CLI.py -a /path/to/AIAssistantQuotaManager2.xml")
-    print("2. 指定IDE数据目录(自动查找配额文件):")
+    print("2. " + t('auto_find_example'))
     print("   python JetBrainsAIQuotaAnalyzer_CLI.py -a /path/to/IDE_Data")
-    print("3. 自动查找所有IDE的配额文件:")
+    print("3. " + t('auto_find_example'))
     print("   python JetBrainsAIQuotaAnalyzer_CLI.py -A")
     
-    print(f"\n{Colors.INFO}常见配额文件路径:{Colors.RESET}")
+    print(f"\n{Colors.INFO}{t('common_paths_title')}{Colors.RESET}")
     print("- Windows:")
-    print("  1. 直接指定文件:")
-    print("     %APPDATA%\\JetBrains\\<产品>\\options\\AIAssistantQuotaManager2.xml")
-    print("     例如: C:\\Users\\用户名\\AppData\\Roaming\\JetBrains\\PyCharm2024.1\\options\\AIAssistantQuotaManager2.xml")
-    print("  2. 指定IDE数据目录:")
-    print("     C:\\Users\\用户名\\JetBrains\\<产品>\\<版本>")
+    print("  1. " + t('analyze_example'))
+    print(f"     %APPDATA%\\JetBrains\\{t('product_placeholder')}\\options\\AIAssistantQuotaManager2.xml")
+    print(f"     {t('example')}: C:\\Users\\{t('username')}\\AppData\\Roaming\\JetBrains\\PyCharm2024.1\\options\\AIAssistantQuotaManager2.xml")
+    print("  2. " + t('auto_find_example'))
+    print(f"     C:\\Users\\{t('username')}\\JetBrains\\{t('product_placeholder')}\\{t('version_placeholder')}")
     
     print(f"\n{Colors.INFO}- macOS:{Colors.RESET}")
-    print("  1. 直接指定文件:")
-    print("     ~/Library/Application Support/JetBrains/<产品>/options/AIAssistantQuotaManager2.xml")
-    print("     例如: /Users/用户名/Library/Application Support/JetBrains/PyCharm2024.1/options/AIAssistantQuotaManager2.xml")
-    print("  2. 指定IDE数据目录:")
-    print("     ~/Library/Application Support/JetBrains/<产品>")
+    print("  1. " + t('analyze_example'))
+    print(f"     ~/Library/Application Support/JetBrains/{t('product_placeholder')}/options/AIAssistantQuotaManager2.xml")
+    print(f"     {t('example')}: /Users/{t('username')}/Library/Application Support/JetBrains/PyCharm2024.1/options/AIAssistantQuotaManager2.xml")
+    print("  2. " + t('auto_find_example'))
+    print(f"     ~/Library/Application Support/JetBrains/{t('product_placeholder')}")
     
     print(f"\n{Colors.INFO}- Linux:{Colors.RESET}")
-    print("  1. 直接指定文件:")
-    print("     ~/.config/JetBrains/<产品>/options/AIAssistantQuotaManager2.xml")
-    print("     例如: /home/用户名/.config/JetBrains/PyCharm2024.1/options/AIAssistantQuotaManager2.xml")
-    print("  2. 指定IDE数据目录:")
-    print("     ~/.config/JetBrains/<产品>")
+    print("  1. " + t('analyze_example'))
+    print(f"     ~/.config/JetBrains/{t('product_placeholder')}/options/AIAssistantQuotaManager2.xml")
+    print(f"     {t('example')}: /home/{t('username')}/.config/JetBrains/PyCharm2024.1/options/AIAssistantQuotaManager2.xml")
+    print("  2. " + t('auto_find_example'))
+    print(f"     ~/.config/JetBrains/{t('product_placeholder')}")
     
-    print(f"\n{Colors.INFO}其中 <产品> 可以是:{Colors.RESET}")
+    print(f"\n{Colors.INFO}{t('paths_tip')}{Colors.RESET}")
     print("- PyCharm2024.1 (PyCharm)")
     print("- IntelliJIdea2024.1 (IntelliJ IDEA)")
     print("- WebStorm2024.1 (WebStorm)")
     print("- CLion2024.1 (CLion)")
-    print("等等...")
+    print(f"- {t('etc')}")
 
 def print_environment_info():
     """打印环境信息"""
-    print(f"\n{Colors.HEADER}环境信息:{Colors.RESET}")
-    print(f"{Colors.INFO}操作系统: {Colors.SUCCESS}{platform.system()} {platform.release()} ({platform.version()}){Colors.RESET}")
-    print(f"{Colors.INFO}Python 版本: {Colors.SUCCESS}{platform.python_version()}{Colors.RESET}")
-    print(f"{Colors.INFO}SQLite 版本: {Colors.SUCCESS}{sqlite3.sqlite_version}{Colors.RESET}")
-    print(f"{Colors.INFO}应用程序路径: {Colors.SUCCESS}{os.path.abspath(__file__)}{Colors.RESET}")
-    print(f"{Colors.INFO}当前工作目录: {Colors.SUCCESS}{os.getcwd()}{Colors.RESET}")
-    print(f"{Colors.INFO}用户主目录: {Colors.SUCCESS}{os.path.expanduser('~')}{Colors.RESET}")
-    print(f"{Colors.INFO}临时目录: {Colors.SUCCESS}{os.path.abspath(os.getenv('TMPDIR', '/tmp'))}{Colors.RESET}")
+    print(f"\n{Colors.HEADER}{t('environment_info_detailed')}{Colors.RESET}")
+    print(f"{Colors.INFO}{t('os_info_detailed').format(os=platform.system(), release=platform.release(), version=platform.version())}{Colors.RESET}")
+    print(f"{Colors.INFO}{t('python_version_detailed').format(version=platform.python_version())}{Colors.RESET}")
+    print(f"{Colors.INFO}{t('sqlite_version_detailed').format(version=sqlite3.sqlite_version)}{Colors.RESET}")
+    print(f"{Colors.INFO}{t('app_path_detailed').format(path=os.path.abspath(__file__))}{Colors.RESET}")
+    print(f"{Colors.INFO}{t('working_dir_detailed').format(path=os.getcwd())}{Colors.RESET}")
+    print(f"{Colors.INFO}{t('home_dir_detailed').format(path=os.path.expanduser('~'))}{Colors.RESET}")
+    print(f"{Colors.INFO}{t('temp_dir_detailed').format(path=os.path.abspath(os.getenv('TMPDIR', '/tmp')))}{Colors.RESET}")
     try:
         path_list = os.getenv('PATH', '').split(os.pathsep)
-        print(f"{Colors.INFO}PATH 环境变量: {Colors.SUCCESS}{path_list}{Colors.RESET}")
+        print(f"{Colors.INFO}{t('path_var_detailed').format(path=path_list)}{Colors.RESET}")
     except Exception as e:
-        print(f"{Colors.ERROR}获取环境变量时出错: {e}{Colors.RESET}")
+        print(f"{Colors.ERROR}{t('env_var_error').format(error=e)}{Colors.RESET}")
 
 
 def main():
     """主函数"""
     try:
+        # 创建配置管理器
+        config_manager = ConfigManager()
+        
+        # 先检查命令行中是否指定了语言
+        import sys
+        for i, arg in enumerate(sys.argv[1:], 1):
+            if arg == "--lang" and i < len(sys.argv):
+                lang = sys.argv[i+1]
+                if lang in SUPPORTED_LANGUAGES:
+                    set_language(lang)
+            elif arg.startswith("--lang="):
+                lang = arg.split("=")[1]
+                if lang in SUPPORTED_LANGUAGES:
+                    set_language(lang)
+        
+        # 如果命令行中未指定语言，从配置加载
+        if not get_language() in SUPPORTED_LANGUAGES:
+            set_language(config_manager.get_language())
+            
+        # 打印配置路径信息
+        config_manager.print_config_paths()
+        
+        # 解析命令行参数
+        args = parse_arguments()
+        
+        # 如果通过命令行指定了语言，保存到配置
+        if args.lang:
+            config_manager.set_language(args.lang)
+            
         # 获取应用程序锁
         if not get_app_lock():
             sys.exit(1)
@@ -1737,14 +1816,8 @@ def main():
         # 打印诊断信息
         print_diagnostic_info()
         
-        # 创建配置管理器
-        config_manager = ConfigManager()
-        
         # 创建数据库管理器
         db_manager = DatabaseManager(config_manager)
-        
-        # 解析命令行参数
-        args = parse_arguments()
         
         # 创建命令行界面
         cli = CommandLineInterface(config_manager, db_manager)
@@ -1771,16 +1844,16 @@ def main():
                 # 如果没有提供参数，运行交互式界面
                 cli.run_interactive()
         except KeyboardInterrupt:
-            print("\n操作已取消")
+            print(f"\n{t('operation_cancelled')}")
         except EOFError:
-            print("\n检测到EOF，可能是在非交互式环境中运行")
-            print("请使用命令行参数代替交互式模式，例如:")
+            print(f"\n{t('eof_interrupt')}")
+            print(f"{t('use_command_line')}")
             print("  python JetBrainsAIQuotaAnalyzer_CLI.py -A --all")
             print("  python JetBrainsAIQuotaAnalyzer_CLI.py -a /path/to/file.xml")
             print("  python JetBrainsAIQuotaAnalyzer_CLI.py --help")
         except Exception as e:
-            print(f"发生错误: {e}")
-            print("错误详情:")
+            print(f"{t('unexpected_error').format(error=e)}")
+            print(f"{t('examples')}:")
             traceback.print_exc()
         
         # 关闭数据库连接
@@ -1789,8 +1862,8 @@ def main():
         # 释放应用程序锁
         release_app_lock()
     except Exception as e:
-        print(f"程序启动失败: {e}")
-        print("错误详情:")
+        print(f"{t('unexpected_error').format(error=e)}")
+        print(f"{t('examples')}:")
         traceback.print_exc()
         sys.exit(1)
 
