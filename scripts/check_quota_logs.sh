@@ -134,11 +134,9 @@ grep "QuotaManager2" "$LOG_FILE" | grep -E "New quota state|quota refill|Quota u
             # If current value couldn't be extracted or is not numeric, reset previous
             PREV_AVAIL_CURRENT_VAL=""
         fi
-    else
-        # If the line is not "New quota state is: Available", reset PREV_AVAIL_CURRENT_VAL.
-        # This ensures diff is only for consecutive "Available" states.
-        PREV_AVAIL_CURRENT_VAL=""
     fi
+    # Removed the else branch that was resetting PREV_AVAIL_CURRENT_VAL
+    # This allows differences to be calculated between "Available" entries even when they're not consecutive
 
     echo "${OUTPUT_DISPLAY_LINE}${DIFFERENCE_INFO_TEXT}"
 done
