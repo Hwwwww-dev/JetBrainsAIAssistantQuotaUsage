@@ -29,6 +29,8 @@
 
 其中 `<IDE>` 是您特定的 JetBrains IDE（例如：IntelliJ IDEA 2025.1, WebStorm 2025.1 等）
 
+您可以通过创建 `.check_quota_cached_quota_file_path` 和 `.check_quota_logs_cached_log_path` 文件并在其中写入相关文件的完整路径来覆盖默认位置。
+
 ### 方法二：查看刷新日志
 
 您还可以通过在 IDE 日志文件中搜索关键字 "QuotaManager2" 来查看配额刷新日志。
@@ -42,6 +44,8 @@
 ## 使用脚本
 
 本项目为Unix/Linux/macOS（bash）和Windows（cmd）提供了脚本，帮助您查看配额信息：
+
+在MacOS和Linux上，首次使用后，路径会被存储在 `.check_quota_cached_quota_file_path` 和 `.check_quota_logs_cached_log_path` 文件中。
 
 ### 1. 查看当前配额使用情况
 
