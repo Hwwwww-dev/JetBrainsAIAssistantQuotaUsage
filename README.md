@@ -15,6 +15,157 @@ This project helps you check your JetBrains AI Assistant quota usage information
 - Use this project at your own risk. The authors make no warranties about the accuracy or reliability of the information provided.
 - This tool is designed to help users understand their quota usage, not to circumvent any limitations or restrictions.
 
+## Command-Line Analyzer Tool
+
+This project now includes a command-line version of the JetBrains AI Assistant Quota Analyzer. This tool provides an easy way to analyze your quota usage, track historical data, and filter records by path.
+
+### Features
+
+- **Auto-find quota files** across your system
+- **Analyze quota information** from XML files
+- **Track historical usage** in a SQLite database
+- **Filter history** by file path
+- **Interactive mode** with a user-friendly menu
+- **Command-line arguments** for batch operations
+- **Standalone executable** for easy deployment
+
+### Installation
+
+#### Option 1: Download the Standalone Executable
+
+1. Download the latest release from the [Releases](https://github.com/hwwwww/JetBrainsAIAssistantQuotaUsage/releases) page
+2. Extract the archive
+3. Run the executable directly - no installation required!
+
+#### Option 2: Run from Source
+
+1. Clone this repository
+2. Install the required dependencies (Python 3.6+ required)
+3. Run the script using Python
+
+### Usage
+
+#### Using the Standalone Executable
+
+##### Windows
+```bash
+JetBrainsAIQuotaAnalyzer_CLI.exe -A --all  # Auto-find and analyze all quota files
+JetBrainsAIQuotaAnalyzer_CLI.exe -i        # Run in interactive mode
+JetBrainsAIQuotaAnalyzer_CLI.exe --help    # Show help information
+```
+
+##### macOS/Linux
+```bash
+./JetBrainsAIQuotaAnalyzer_CLI -A --all    # Auto-find and analyze all quota files
+./JetBrainsAIQuotaAnalyzer_CLI -i          # Run in interactive mode
+./JetBrainsAIQuotaAnalyzer_CLI --help      # Show help information
+```
+
+On macOS, you can also double-click the `.app` bundle to run the application.
+
+#### Running from Source
+
+##### Interactive Mode
+
+```bash
+python JetBrainsAIQuotaAnalyzer_CLI.py -i
+```
+
+##### Auto-find and Analyze All Quota Files
+
+```bash
+python JetBrainsAIQuotaAnalyzer_CLI.py -A --all
+```
+
+##### Analyze a Specific File
+
+```bash
+python JetBrainsAIQuotaAnalyzer_CLI.py -a /path/to/AIAssistantQuotaManager2.xml
+```
+
+##### View History Records
+
+```bash
+python JetBrainsAIQuotaAnalyzer_CLI.py -H -l 20  # Show last 20 records
+```
+
+##### Filter History by Path
+
+```bash
+python JetBrainsAIQuotaAnalyzer_CLI.py -f /path/to/AIAssistantQuotaManager2.xml -l 5  # Show last 5 records for specific file
+```
+
+### Building the Executable
+
+If you want to build the executable yourself:
+
+1. Install PyInstaller: `pip install pyinstaller`
+2. Run the build script:
+   ```bash
+   # On macOS/Linux
+   chmod +x build_executable.sh
+   ./build_executable.sh
+   
+   # On Windows
+   build_executable.bat
+   ```
+3. The executable will be created in the `dist` directory
+
+### Common Quota File Locations
+
+#### Windows
+```
+%APPDATA%\JetBrains\<IDE>\options\AIAssistantQuotaManager2.xml
+```
+
+#### macOS
+```
+~/Library/Application Support/JetBrains/<IDE>/options/AIAssistantQuotaManager2.xml
+```
+
+#### Linux
+```
+~/.config/JetBrains/<IDE>/options/AIAssistantQuotaManager2.xml
+```
+
+Where `<IDE>` can be:
+- PyCharm2024.1
+- IntelliJIdea2024.1
+- WebStorm2024.1
+- CLion2024.1
+- Etc.
+
+## Understanding the Output
+
+The tool will display information about your JetBrains AI Assistant quota, including:
+
+- **Type**: The type of quota (usually "Available")
+- **Current Value**: Your current quota amount
+- **Maximum Value**: The maximum quota amount
+- **Usage Percentage**: How much of your quota you've used
+- **Valid Until**: The expiration date of your quota
+- **Refill Information**: Details about when and how your quota will be refilled
+
+### Example Output
+
+```
+配额信息:
+类型: Available
+当前值: 797931.70
+最大值: 2000000.00
+使用百分比: 39.90%
+有效期至: 2026-05-21T21:00:00Z
+
+补充信息:
+补充类型: Known
+下次补充: 2025-05-21T16:03:48.944Z
+补充数量: 0.00
+补充周期: 
+
+时间戳: 2025-05-15T21:04:08.841381
+文件路径: /Users/hwwwww/Library/Application Support/JetBrains/GoLand2025.1/options/AIAssistantQuotaManager2.xml
+```
+
 ## Manual Methods
 
 ### Method 1: Check Account Usage
