@@ -1,7 +1,13 @@
 #!/bin/bash
 
 # Script to check JetBrains AI Assistant quota usage
-# Usage: ./check_quota.sh <IDE_BASE_PATH>
+# Usage: ./check_quota.sh [<IDE_BASE_PATH>]
+# If <IDE_BASE_PATH> is provided, the full QUOTA_FILE path is derived and cached.
+# If not provided, the cached QUOTA_FILE path is used.
+
+SCRIPT_DIR=$(dirname "$0")
+# Configuration file to store the last used full QUOTA_FILE path
+CONFIG_FILE="${SCRIPT_DIR}/.check_quota_cached_quota_file_path"
 
 # Check if xmllint is installed
 if ! command -v xmllint &> /dev/null; then
@@ -9,24 +15,64 @@ if ! command -v xmllint &> /dev/null; then
     exit 1
 fi
 
-# Check if argument is provided
-if [ $# -eq 0 ]; then
-    echo "Error: IDE base path not provided."
-    echo "Usage: $0 <IDE_BASE_PATH>"
-    echo "Example: $0 /path/to/your/JetBrains/IDE/installation"
-    echo "Note: Please provide the base path to your JetBrains IDE installation."
-    echo "      For example, if your quota file is at '/path/to/IDE/config/options/AIAssistantQuotaManager2.xml',"
-    echo "      then provide '/path/to/IDE' as the argument."
-    exit 1
+IDE_PATH_ARG=""
+# Check if IDE base path argument is provided
+if [ $# -gt 0 ]; then
+    IDE_PATH_ARG="$1"
 fi
 
-IDE_PATH="$1"
-QUOTA_FILE="${IDE_PATH}/config/options/AIAssistantQuotaManager2.xml"
+QUOTA_FILE=""
+
+if [ -n "$IDE_PATH_ARG" ]; then
+    # IDE_BASE_PATH is provided, determine QUOTA_FILE and cache its full path
+    # Remove trailing slash from IDE_PATH_ARG if it exists
+    IDE_PATH_CLEANED="${IDE_PATH_ARG%/}"
+
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        # macOS
+        QUOTA_FILE="${IDE_PATH_CLEANED}/options/AIAssistantQuotaManager2.xml"
+    else
+        # Other OS (Linux, etc.)
+        QUOTA_FILE="${IDE_PATH_CLEANED}/config/options/AIAssistantQuotaManager2.xml"
+    fi
+
+    # Ensure SCRIPT_DIR is an absolute path or CONFIG_FILE path is correctly resolved
+    if [[ "$SCRIPT_DIR" != /* && "$SCRIPT_DIR" != "." && "$SCRIPT_DIR" != ".." ]]; then
+        CONFIG_FILE_PATH_TO_SAVE="$(pwd)/${SCRIPT_DIR#./}/.check_quota_cached_quota_file_path"
+    elif [[ "$SCRIPT_DIR" == "." ]]; then
+        CONFIG_FILE_PATH_TO_SAVE="$(pwd)/.check_quota_cached_quota_file_path"
+    else # Covers absolute paths and ".."
+        CONFIG_FILE_PATH_TO_SAVE="${CONFIG_FILE}"
+    fi
+    # Create directory for config file if it doesn't exist
+    mkdir -p "$(dirname "$CONFIG_FILE_PATH_TO_SAVE")"
+    echo "$QUOTA_FILE" > "$CONFIG_FILE_PATH_TO_SAVE"
+    echo "IDE base path provided. Full quota file path set to '$QUOTA_FILE' and cached in '$CONFIG_FILE_PATH_TO_SAVE'."
+elif [ -f "$CONFIG_FILE" ]; then
+    # No IDE_BASE_PATH provided, try to use cached QUOTA_FILE path
+    QUOTA_FILE=$(cat "$CONFIG_FILE")
+    if [ -z "$QUOTA_FILE" ]; then
+        echo "Error: Cached quota file path in '$CONFIG_FILE' is empty."
+        echo "Please provide the <IDE_BASE_PATH> argument once to set it."
+        echo "Usage: $0 [<IDE_BASE_PATH>]"
+        exit 1
+    fi
+    echo "Using cached quota file path: $QUOTA_FILE (from $CONFIG_FILE)"
+else
+    # No IDE_BASE_PATH provided and no cached path found
+    echo "Error: IDE base path not provided and no cached quota file path found in '$CONFIG_FILE'."
+    echo "Please provide the <IDE_BASE_PATH> argument on the first run to cache the path."
+    echo "Usage: $0 [<IDE_BASE_PATH>]"
+    echo "Example (first run): $0 /path/to/your/JetBrains/IDE/installation"
+    echo "Example (subsequent runs): $0"
+    exit 1
+fi
 
 # Check if the quota file exists
 if [ ! -f "$QUOTA_FILE" ]; then
     echo "Error: Quota file not found at $QUOTA_FILE"
     echo "Please check if the path is correct and the file exists."
+    echo "If the cached path is incorrect, please run the script again with the correct <IDE_BASE_PATH>."
     exit 1
 fi
 
@@ -58,7 +104,7 @@ UNTIL=$(echo "$QUOTA_INFO" | grep -o '"until"[[:space:]]*:[[:space:]]*"[^"]*"' |
 if [ -n "$NEXT_REFILL" ]; then
     REFILL_TYPE=$(echo "$NEXT_REFILL" | grep -o '"type"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"type"[[:space:]]*:[[:space:]]*"//' | sed 's/"[[:space:]]*$//')
     NEXT_DATE=$(echo "$NEXT_REFILL" | grep -o '"next"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"next"[[:space:]]*:[[:space:]]*"//' | sed 's/"[[:space:]]*$//')
-    
+
     # Extract tariff information if available
     TARIFF_AMOUNT=$(echo "$NEXT_REFILL" | grep -o '"amount"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"amount"[[:space:]]*:[[:space:]]*"//' | sed 's/"[[:space:]]*$//')
     TARIFF_DURATION=$(echo "$NEXT_REFILL" | grep -o '"duration"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"duration"[[:space:]]*:[[:space:]]*"//' | sed 's/"[[:space:]]*$//')
@@ -73,7 +119,7 @@ echo "Maximum Quota: $MAXIMUM tokens"
 echo "Valid Until: $UNTIL"
 
 # Calculate percentage used
-if [[ "$CURRENT" =~ ^[0-9]+(\.[0-9]+)?$ ]] && [[ "$MAXIMUM" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+if [[ "$CURRENT" =~ ^[0-9]+(\.[0-9]+)?$ ]] && [[ "$MAXIMUM" =~ ^[0-9]+(\.[0-9]+)?$ ]] && [ $(echo "$MAXIMUM > 0" | bc -l 2>/dev/null) -eq 1 ]; then
     PERCENTAGE=$(awk "BEGIN {printf \"%.2f\", ($CURRENT/$MAXIMUM)*100}")
     echo "Percentage Used: $PERCENTAGE%"
 fi

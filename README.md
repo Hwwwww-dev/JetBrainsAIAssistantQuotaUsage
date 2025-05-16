@@ -180,6 +180,8 @@ You can directly check your AI Assistant quota usage by examining the `AIAssista
 
 Where `<IDE>` is your specific JetBrains IDE (e.g., IntelliJ IDEA 2025.1, WebStorm 2025.1, etc.)
 
+You can override the locations by creating `.check_quota_cached_quota_file_path` and `.check_quota_logs_cached_log_path` with the full paths to the related files.
+
 ### Method 2: Check Refresh Logs
 
 You can also check the quota refresh logs in the IDE log file by searching for the keyword "QuotaManager2".
@@ -193,6 +195,8 @@ You can also check the quota refresh logs in the IDE log file by searching for t
 ## Using the Scripts
 
 This project provides scripts to help you check your quota information for both Unix/Linux/macOS (bash) and Windows (cmd):
+
+On MacOS and Linux the paths are stored in .check_quota_cached_quota_file_path and .check_quota_logs_cached_log_path after the first time use.
 
 ### 1. Check Current Quota Usage
 
@@ -217,8 +221,10 @@ Example:
 
 #### For Unix/Linux/macOS:
 ```bash
-./scripts/check_quota_logs.sh <IDE_BASE_PATH>
+./scripts/check_quota_logs.sh [-n 200] <IDE_BASE_PATH>
 ```
+
+-n flag is optional and overrides the default 200 limit.
 
 #### For Windows:
 ```cmd
