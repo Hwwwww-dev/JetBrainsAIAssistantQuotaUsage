@@ -1,0 +1,17 @@
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+
+### VS Code ###
+.vscode/
+
+build/
+.venv/
+/dist/JetBrainsAIQuotaAnalyzer_CLI.app/Contents/_CodeSignature/CodeResources
+/dist/JetBrainsAIQuotaAnalyzer_CLI.app/Contents/MacOS/JetBrainsAIQuotaAnalyzer_CLI
+/dist/JetBrainsAIQuotaAnalyzer_CLI.app/Contents/Resources/icon-windowed.icns
+/dist/JetBrainsAIQuotaAnalyzer_CLI.app/Contents/Info.plist
+/dist/JetBrainsAIQuotaAnalyzer_CLI
