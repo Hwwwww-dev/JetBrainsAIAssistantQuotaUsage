@@ -15,13 +15,22 @@ if [ $# -eq 0 ]; then
     echo "Usage: $0 <IDE_BASE_PATH>"
     echo "Example: $0 /path/to/your/JetBrains/IDE/installation"
     echo "Note: Please provide the base path to your JetBrains IDE installation."
-    echo "      For example, if your quota file is at '/path/to/IDE/config/options/AIAssistantQuotaManager2.xml',"
+    echo "      For example, if your quota file is at '/path/to/IDE/options/AIAssistantQuotaManager2.xml',"
     echo "      then provide '/path/to/IDE' as the argument."
     exit 1
 fi
 
 IDE_PATH="$1"
-QUOTA_FILE="${IDE_PATH}/config/options/AIAssistantQuotaManager2.xml"
+
+# Determine QUOTA_FILE based on OS
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    # macOS
+    QUOTA_FILE="${IDE_PATH}/options/AIAssistantQuotaManager2.xml"
+else
+    # Other OS (Linux, etc.)
+    QUOTA_FILE="${IDE_PATH}/config/options/AIAssistantQuotaManager2.xml"
+fi
+
 
 # Check if the quota file exists
 if [ ! -f "$QUOTA_FILE" ]; then
@@ -58,7 +67,7 @@ UNTIL=$(echo "$QUOTA_INFO" | grep -o '"until"[[:space:]]*:[[:space:]]*"[^"]*"' |
 if [ -n "$NEXT_REFILL" ]; then
     REFILL_TYPE=$(echo "$NEXT_REFILL" | grep -o '"type"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"type"[[:space:]]*:[[:space:]]*"//' | sed 's/"[[:space:]]*$//')
     NEXT_DATE=$(echo "$NEXT_REFILL" | grep -o '"next"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"next"[[:space:]]*:[[:space:]]*"//' | sed 's/"[[:space:]]*$//')
-    
+
     # Extract tariff information if available
     TARIFF_AMOUNT=$(echo "$NEXT_REFILL" | grep -o '"amount"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"amount"[[:space:]]*:[[:space:]]*"//' | sed 's/"[[:space:]]*$//')
     TARIFF_DURATION=$(echo "$NEXT_REFILL" | grep -o '"duration"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"duration"[[:space:]]*:[[:space:]]*"//' | sed 's/"[[:space:]]*$//')
