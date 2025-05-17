@@ -146,25 +146,6 @@ The tool will display information about your JetBrains AI Assistant quota, inclu
 - **Valid Until**: The expiration date of your quota
 - **Refill Information**: Details about when and how your quota will be refilled
 
-### Example Output
-
-```
-配额信息:
-类型: Available
-当前值: 797931.70
-最大值: 2000000.00
-使用百分比: 39.90%
-有效期至: 2026-05-21T21:00:00Z
-
-补充信息:
-补充类型: Known
-下次补充: 2025-05-21T16:03:48.944Z
-补充数量: 0.00
-补充周期: 
-
-时间戳: 2025-05-15T21:04:08.841381
-文件路径: /Users/hwwwww/Library/Application Support/JetBrains/GoLand2025.1/options/AIAssistantQuotaManager2.xml
-```
 
 ## Manual Methods
 
